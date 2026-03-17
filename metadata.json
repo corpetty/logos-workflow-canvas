@@ -1,0 +1,16 @@
+{
+  "name": "workflow_canvas",
+  "version": "1.0.0",
+  "description": "Visual workflow editor using QuickQanava — drag, drop, and wire Logos module operations into executable pipelines",
+  "author": "Logos Core Team",
+  "type": "ui",
+  "category": "integration",
+  "main": "workflow_canvas",
+  "dependencies": ["workflow_registry", "workflow_engine"],
+  "capabilities": [
+    "visual_workflow_editor",
+    "node_graph_canvas",
+    "workflow_authoring"
+  ],
+  "icon": ":/icons/workflow.png"
+}

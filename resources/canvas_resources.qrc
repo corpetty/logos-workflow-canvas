@@ -1,0 +1,10 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="qml/WorkflowCanvas.qml">../qml/WorkflowCanvas.qml</file>
+        <file alias="qml/delegates/ModuleNodeDelegate.qml">../qml/delegates/ModuleNodeDelegate.qml</file>
+        <file alias="qml/delegates/UtilityNodeDelegate.qml">../qml/delegates/UtilityNodeDelegate.qml</file>
+        <file alias="qml/delegates/ControlFlowDelegate.qml">../qml/delegates/ControlFlowDelegate.qml</file>
+        <file alias="qml/delegates/TransformNodeDelegate.qml">../qml/delegates/TransformNodeDelegate.qml</file>
+        <file alias="qml/delegates/TriggerNodeDelegate.qml">../qml/delegates/TriggerNodeDelegate.qml</file>
+    </qresource>
+</RCC>

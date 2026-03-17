@@ -1,0 +1,23 @@
+name: workflow_canvas
+version: 1.0.0
+type: ui
+category: integration
+description: "Visual workflow editor — QuickQanava node graph canvas for composing Logos module operations"
+
+dependencies:
+  - workflow_registry
+  - workflow_engine
+
+nix_packages:
+  build: []
+  runtime: []
+
+external_libraries: []
+
+cmake:
+  find_packages:
+    - "Qt6Quick"
+    - "Qt6QuickWidgets"
+    - "Qt6QuickControls2"
+  extra_sources: []
+  proto_files: []
