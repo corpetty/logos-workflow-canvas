@@ -46,7 +46,7 @@
             ];
             buildInputs = [
               pkgs.qt6.qtbase pkgs.qt6.qtdeclarative
-              pkgs.qt6.qtquickcontrols2 or pkgs.qt6.qtdeclarative
+              pkgs.qt6.qtdeclarative
               pkgs.zstd pkgs.krb5
               quickqanavaPkg
             ];
