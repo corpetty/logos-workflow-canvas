@@ -42,8 +42,9 @@
               # Copy built static libraries
               find . -name "*.a" -exec cp {} $out/lib/ \;
 
-              # Copy headers from source
-              cp -r $src/src/*.h $out/include/QuickQanava/ 2>/dev/null || true
+              # Copy entire source tree (headers + subdirs like quickcontainers, gtpo, bezier)
+              # QuickQanava uses relative includes (e.g. ./quickcontainers/QuickContainers.h)
+              cp -r $src/src/* $out/include/QuickQanava/
 
               # Copy QML plugin files
               if [ -d src/QuickQanava ]; then
