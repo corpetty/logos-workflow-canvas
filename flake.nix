@@ -79,6 +79,15 @@
               "-DLOGOS_LIBLOGOS_ROOT=${logosLiblogos}"
               "-DQUICKQANAVA_ROOT=${quickqanavaPkg}"
             ];
+
+            # Canvas CMakeLists.txt has no install targets
+            installPhase = ''
+              runHook preInstall
+              mkdir -p $out/lib
+              cp workflow_canvas.so $out/lib/ 2>/dev/null || cp workflow_canvas.dylib $out/lib/ 2>/dev/null || true
+              runHook postInstall
+            '';
+
             meta = {
               description = "Logos Workflow Canvas - Visual workflow editor";
               platforms = pkgs.lib.platforms.unix;
