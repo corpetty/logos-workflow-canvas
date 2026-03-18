@@ -58,7 +58,7 @@ The canvas has no runtime dependency — once a workflow is serialized to JSON i
 
 ### Vendor
 
-QuickQanava is included as a git submodule at `vendor/QuickQanava`.
+QuickQanava is included as a git submodule at `vendor/QuickQanava` for local CMake builds. For Nix builds, QuickQanava is fetched automatically as a flake input and built as a pre-packaged static library.
 
 ---
 
@@ -105,24 +105,30 @@ logos-workflow-canvas/
 
 ### With Nix (recommended)
 
-```bash
-# Initialize the QuickQanava submodule first
-git submodule update --init --recursive
+The Nix flake fetches QuickQanava from GitHub and builds it as a static library — no submodule initialization needed. The canvas uses a custom flake (not `mkLogosModule`) since it has additional Qt6/QuickQanava dependencies beyond the standard module builder.
 
+```bash
 nix build
 ```
 
-### With CMake
+Output: `result/lib/workflow_canvas.so`
 
-Requires Qt6 with Quick, QuickWidgets, and QuickControls2.
+### With CMake (local development)
+
+Requires Qt6 with Quick, QuickWidgets, and QuickControls2. Initialize the QuickQanava submodule first.
 
 ```bash
 git submodule update --init --recursive
 
 mkdir build && cd build
-cmake .. -DCMAKE_PREFIX_PATH=/path/to/logos-core
-make -j$(nproc)
+cmake .. -GNinja
+ninja
 ```
+
+The CMakeLists.txt supports two modes for QuickQanava:
+
+- **Vendored** (default for local builds): builds from `vendor/QuickQanava/` as a CMake subdirectory
+- **Pre-built** (Nix builds): pass `-DQUICKQANAVA_ROOT=/path/to/quickqanava` to use an installed static library
 
 Output: `build/workflow_canvas.so`
 
