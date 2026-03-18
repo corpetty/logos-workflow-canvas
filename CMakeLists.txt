@@ -11,12 +11,27 @@ set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Quick Qml QuickWidgets QuickControls2)
 
-# QuickQanava — build from vendored subdirectory
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vendor/QuickQanava/CMakeLists.txt")
+# QuickQanava — prefer pre-built package (Nix), fall back to vendored subdirectory
+if(DEFINED QUICKQANAVA_ROOT AND EXISTS "${QUICKQANAVA_ROOT}/lib")
+    message(STATUS "Using pre-built QuickQanava from: ${QUICKQANAVA_ROOT}")
+    add_library(QuickQanava STATIC IMPORTED)
+    # Find the static library
+    find_library(QUICKQANAVA_LIB NAMES QuickQanava libQuickQanava
+                 PATHS "${QUICKQANAVA_ROOT}/lib" NO_DEFAULT_PATH)
+    if(NOT QUICKQANAVA_LIB)
+        # Try finding any .a file
+        file(GLOB QUICKQANAVA_LIB "${QUICKQANAVA_ROOT}/lib/libQuickQanava.a")
+    endif()
+    set_target_properties(QuickQanava PROPERTIES
+        IMPORTED_LOCATION "${QUICKQANAVA_LIB}"
+        INTERFACE_INCLUDE_DIRECTORIES "${QUICKQANAVA_ROOT}/include/QuickQanava"
+    )
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vendor/QuickQanava/CMakeLists.txt")
+    message(STATUS "Building QuickQanava from vendored subdirectory")
     set(QUICK_QANAVA_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
     add_subdirectory(vendor/QuickQanava)
 else()
-    message(FATAL_ERROR "QuickQanava not found. Run: git clone https://github.com/cneben/QuickQanava.git vendor/QuickQanava")
+    message(FATAL_ERROR "QuickQanava not found. Either set QUICKQANAVA_ROOT or run: git clone https://github.com/cneben/QuickQanava.git vendor/QuickQanava")
 endif()
 
 # Component interfaces (IComponent)
@@ -62,9 +77,13 @@ target_include_directories(workflow_canvas PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/nodes
     ${CMAKE_CURRENT_SOURCE_DIR}/interfaces
-    # QuickQanava headers
-    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/QuickQanava/src
 )
+# QuickQanava headers — use pre-built path or vendored source
+if(DEFINED QUICKQANAVA_ROOT AND EXISTS "${QUICKQANAVA_ROOT}/include/QuickQanava")
+    target_include_directories(workflow_canvas PRIVATE ${QUICKQANAVA_ROOT}/include/QuickQanava)
+else()
+    target_include_directories(workflow_canvas PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor/QuickQanava/src)
+endif()
 
 # SDK includes
 if(EXISTS "${LOGOS_CPP_SDK_ROOT}/cpp/logos_api.h")
