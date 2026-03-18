@@ -32,6 +32,28 @@
             nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.pkg-config pkgs.qt6.wrapQtAppsHook ];
             buildInputs = [ pkgs.qt6.qtbase pkgs.qt6.qtdeclarative ];
             cmakeFlags = [ "-GNinja" "-DCMAKE_BUILD_TYPE=Release" ];
+
+            # QuickQanava has no install targets — manually copy built artifacts
+            installPhase = ''
+              runHook preInstall
+
+              mkdir -p $out/lib $out/include/QuickQanava
+
+              # Copy built static libraries
+              find . -name "*.a" -exec cp {} $out/lib/ \;
+
+              # Copy headers from source
+              cp -r $src/src/*.h $out/include/QuickQanava/ 2>/dev/null || true
+
+              # Copy QML plugin files
+              if [ -d src/QuickQanava ]; then
+                mkdir -p $out/lib/qml/QuickQanava
+                cp -r src/QuickQanava/* $out/lib/qml/QuickQanava/ 2>/dev/null || true
+              fi
+
+              runHook postInstall
+            '';
+
             meta.description = "QuickQanava graph visualization library";
           };
         in
@@ -46,7 +68,6 @@
             ];
             buildInputs = [
               pkgs.qt6.qtbase pkgs.qt6.qtdeclarative
-              pkgs.qt6.qtdeclarative
               pkgs.zstd pkgs.krb5
               quickqanavaPkg
             ];
