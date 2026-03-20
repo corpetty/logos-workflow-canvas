@@ -1,4 +1,5 @@
 #include "CanvasWidget.h"
+#include "WorkflowGraph.h"
 #include "logos_api.h"
 #include "logos_api_client.h"
 
@@ -9,6 +10,8 @@
 #include <QStandardPaths>
 #include <QQmlEngine>
 #include <QQuickStyle>
+#include <QCoreApplication>
+#include <QtQml/qqml.h>
 
 CanvasWidget::CanvasWidget(LogosAPI* logosAPI, QWidget* parent)
     : QWidget(parent)
@@ -31,10 +34,41 @@ void CanvasWidget::setupUI()
     m_quickWidget->setMinimumSize(800, 600);
     m_quickWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
 
+    // QuickQanava is installed as a shared QML module alongside this plugin.
+    // The LGX installer places bundled files next to the plugin .so:
+    //   <plugins>/workflow_canvas/workflow_canvas.so
+    //   <plugins>/workflow_canvas/qt-6/qml/QuickQanava/qmldir
+    //
+    // Try both portable and non-portable (Nix dev) plugin paths, plus the
+    // app's own lib directory.
+    QString appDataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QStringList qmlSearchPaths = {
+        appDataDir + "Nix/plugins/workflow_canvas/qt-6/qml",   // Non-portable (Nix dev)
+        appDataDir + "/plugins/workflow_canvas/qt-6/qml",       // Portable
+        QCoreApplication::applicationDirPath() + "/../lib/qt-6/qml", // App output
+    };
+    for (const QString& path : qmlSearchPaths) {
+        if (QDir(path + "/QuickQanava").exists()) {
+            m_quickWidget->engine()->addImportPath(path);
+            qDebug() << "[canvas] Added QML import path:" << path;
+            break;
+        }
+    }
+
+    // Register canvas-specific QML types
+    qmlRegisterType<WorkflowGraph>("WorkflowCanvas", 1, 0, "WorkflowGraph");
+
     // Expose this widget to QML so it can call our slots
     m_quickWidget->rootContext()->setContextProperty("canvasWidget", this);
 
     m_quickWidget->setSource(QUrl("qrc:/qml/WorkflowCanvas.qml"));
+
+    if (m_quickWidget->status() == QQuickWidget::Error) {
+        qWarning() << "[canvas] QML load errors:";
+        for (const auto& err : m_quickWidget->errors()) {
+            qWarning() << "[canvas]  " << err.toString();
+        }
+    }
 
     layout->addWidget(m_quickWidget);
     setLayout(layout);

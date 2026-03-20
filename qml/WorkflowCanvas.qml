@@ -1,15 +1,15 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
-import QuickQanava 2.0 as Qan
+import QuickQanava as Qan
+import WorkflowCanvas 1.0
 
 /**
  * Main workflow canvas — the root QML component loaded by CanvasWidget.
  * Contains the graph view, toolbar, node palette sidebar, and execution panel.
  */
-ApplicationWindow {
+Rectangle {
     id: root
-    visible: true
     color: "#0d1117"
 
     // The canvasWidget C++ object is injected via setContextProperty

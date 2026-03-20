@@ -11,17 +11,12 @@ set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Quick Qml QuickWidgets QuickControls2)
 
-# QuickQanava — prefer pre-built package (Nix), fall back to vendored subdirectory
+# QuickQanava — prefer pre-built shared library (Nix), fall back to vendored subdirectory
 if(DEFINED QUICKQANAVA_ROOT AND EXISTS "${QUICKQANAVA_ROOT}/lib")
     message(STATUS "Using pre-built QuickQanava from: ${QUICKQANAVA_ROOT}")
-    add_library(QuickQanava STATIC IMPORTED)
-    # Find the static library
-    find_library(QUICKQANAVA_LIB NAMES QuickQanava libQuickQanava
+    add_library(QuickQanava SHARED IMPORTED)
+    find_library(QUICKQANAVA_LIB NAMES QuickQanava
                  PATHS "${QUICKQANAVA_ROOT}/lib" NO_DEFAULT_PATH)
-    if(NOT QUICKQANAVA_LIB)
-        # Try finding any .a file
-        file(GLOB QUICKQANAVA_LIB "${QUICKQANAVA_ROOT}/lib/libQuickQanava.a")
-    endif()
     set_target_properties(QuickQanava PROPERTIES
         IMPORTED_LOCATION "${QUICKQANAVA_LIB}"
         INTERFACE_INCLUDE_DIRECTORIES "${QUICKQANAVA_ROOT}/include/QuickQanava"

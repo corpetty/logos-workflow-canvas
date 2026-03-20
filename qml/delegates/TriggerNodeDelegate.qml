@@ -1,7 +1,7 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
-import QuickQanava 2.0 as Qan
+import QuickQanava as Qan
 
 /**
  * Visual delegate for trigger nodes (Webhook, Timer, Manual).
