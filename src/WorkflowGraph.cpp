@@ -40,7 +40,7 @@ qan::Node* WorkflowGraph::insertWorkflowNode(const QJsonObject& nodeTypeDef)
 
 qan::Node* WorkflowGraph::createModuleMethodNode(const QJsonObject& def)
 {
-    auto* node = dynamic_cast<ModuleMethodNode*>(insertNode(static_cast<QQmlComponent*>(nullptr)));
+    auto* node = insertNode<ModuleMethodNode>(nullptr);
     if (node) {
         node->setLabel(def["methodDisplayName"].toString());
         node->setModuleName(def["module"].toString());
@@ -54,7 +54,7 @@ qan::Node* WorkflowGraph::createModuleMethodNode(const QJsonObject& def)
 
 qan::Node* WorkflowGraph::createUtilityNode(const QJsonObject& def)
 {
-    auto* node = dynamic_cast<UtilityNode*>(insertNode(static_cast<QQmlComponent*>(nullptr)));
+    auto* node = insertNode<UtilityNode>(nullptr);
     if (node) {
         node->setLabel(def["methodDisplayName"].toString());
         node->setNodeTypeId(def["nodeTypeId"].toString());
@@ -70,7 +70,7 @@ qan::Node* WorkflowGraph::createUtilityNode(const QJsonObject& def)
 
 qan::Node* WorkflowGraph::createControlFlowNode(const QJsonObject& def)
 {
-    auto* node = dynamic_cast<ControlFlowNode*>(insertNode(static_cast<QQmlComponent*>(nullptr)));
+    auto* node = insertNode<ControlFlowNode>(nullptr);
     if (node) {
         node->setLabel(def["methodDisplayName"].toString());
         node->setNodeTypeId(def["nodeTypeId"].toString());
@@ -82,7 +82,7 @@ qan::Node* WorkflowGraph::createControlFlowNode(const QJsonObject& def)
 
 qan::Node* WorkflowGraph::createTransformNode(const QJsonObject& def)
 {
-    auto* node = dynamic_cast<TransformNode*>(insertNode(static_cast<QQmlComponent*>(nullptr)));
+    auto* node = insertNode<TransformNode>(nullptr);
     if (node) {
         node->setLabel(def["methodDisplayName"].toString());
         node->setNodeTypeId(def["nodeTypeId"].toString());
@@ -93,7 +93,7 @@ qan::Node* WorkflowGraph::createTransformNode(const QJsonObject& def)
 
 qan::Node* WorkflowGraph::createTriggerNode(const QJsonObject& def)
 {
-    auto* node = dynamic_cast<TriggerNode*>(insertNode(static_cast<QQmlComponent*>(nullptr)));
+    auto* node = insertNode<TriggerNode>(nullptr);
     if (node) {
         node->setLabel(def["methodDisplayName"].toString());
         node->setNodeTypeId(def["nodeTypeId"].toString());
@@ -163,6 +163,8 @@ QString WorkflowGraph::serializeToJson() const
             nodeObj["subtype"] = uNode->subtype();
             QJsonObject props;
             QVariant val = uNode->getProperty("value");
+            qDebug() << "[canvas] Serialize UtilityNode" << uNode->subtype()
+                     << "value valid:" << val.isValid() << "value:" << val;
             if (val.isValid()) props["value"] = QJsonValue::fromVariant(val);
             QVariant tmpl = uNode->getProperty("template");
             if (tmpl.isValid()) props["template"] = tmpl.toString();

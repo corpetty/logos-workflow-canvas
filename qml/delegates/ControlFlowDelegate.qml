@@ -13,8 +13,15 @@ Qan.NodeItem {
     width: 200
     height: 70
 
-    Qan.RectNodeTemplate {
-        nodeItem: parent
+    Rectangle {
+        anchors.fill: parent
+        z: -1
+        radius: 8
+        color: "#1a1a2e"
+        border.color: "#7e57c2"
+        border.width: 2
+        antialiasing: true
+        opacity: 0.95
 
         ColumnLayout {
             anchors.fill: parent
@@ -69,6 +76,7 @@ Qan.NodeItem {
     // Execution status border
     Rectangle {
         anchors.fill: parent
+        z: -1
         color: "transparent"
         radius: 8
         border.width: node && node.executionStatus !== "idle" ? 3 : 0

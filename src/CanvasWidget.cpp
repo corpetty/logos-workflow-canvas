@@ -1,5 +1,10 @@
 #include "CanvasWidget.h"
 #include "WorkflowGraph.h"
+#include "nodes/ModuleMethodNode.h"
+#include "nodes/UtilityNode.h"
+#include "nodes/ControlFlowNode.h"
+#include "nodes/TransformNode.h"
+#include "nodes/TriggerNode.h"
 #include "logos_api.h"
 #include "logos_api_client.h"
 
@@ -12,6 +17,7 @@
 #include <QQuickStyle>
 #include <QCoreApplication>
 #include <QtQml/qqml.h>
+#include "QuickQanava.h"
 
 CanvasWidget::CanvasWidget(LogosAPI* logosAPI, QWidget* parent)
     : QWidget(parent)
@@ -55,8 +61,26 @@ void CanvasWidget::setupUI()
         }
     }
 
-    // Register canvas-specific QML types
+    // Initialize QuickQanava: registers default styles and edge path components
+    // as QML context properties (required for edge rendering).
+    QuickQanava::initialize(m_quickWidget->engine());
+
+    // Set default edge style to be visible on dark backgrounds
+    auto* edgeStyle = qan::Edge::style();
+    if (edgeStyle) {
+        edgeStyle->setLineColor(QColor("#58a6ff"));
+        edgeStyle->setLineWidth(2.0);
+    }
+
+    // Register canvas-specific QML types so they're visible to the QML engine.
+    // (QML_ELEMENT in headers only works with qt_add_qml_module; this plugin
+    // is a plain shared library, so we register manually.)
     qmlRegisterType<WorkflowGraph>("WorkflowCanvas", 1, 0, "WorkflowGraph");
+    qmlRegisterType<ModuleMethodNode>("WorkflowCanvas", 1, 0, "ModuleMethodNode");
+    qmlRegisterType<UtilityNode>("WorkflowCanvas", 1, 0, "UtilityNode");
+    qmlRegisterType<ControlFlowNode>("WorkflowCanvas", 1, 0, "ControlFlowNode");
+    qmlRegisterType<TransformNode>("WorkflowCanvas", 1, 0, "TransformNode");
+    qmlRegisterType<TriggerNode>("WorkflowCanvas", 1, 0, "TriggerNode");
 
     // Expose this widget to QML so it can call our slots
     m_quickWidget->rootContext()->setContextProperty("canvasWidget", this);
@@ -124,12 +148,55 @@ void CanvasWidget::executeWorkflow(const QString& workflowJson)
         return;
     }
 
+    qDebug() << "[canvas] Executing workflow, JSON:" << workflowJson;
+    // Dump to file for debugging
+    QFile debugFile("/tmp/canvas_workflow_debug.json");
+    if (debugFile.open(QIODevice::WriteOnly)) {
+        debugFile.write(workflowJson.toUtf8());
+        debugFile.close();
+    }
+
     QVariant result = engineClient->invokeRemoteMethod(
         QString("workflow_engine"), QString("executeWorkflow"), QVariant(workflowJson));
 
     QString resultJson = result.toString();
+    qDebug() << "[canvas] Execution result:" << resultJson.left(500);
+
     QJsonDocument doc = QJsonDocument::fromJson(resultJson.toUtf8());
     QJsonObject resultObj = doc.object();
+
+    // Update the last execution result (visible to QML)
+    m_lastExecutionResult = resultJson;
+    emit lastExecutionResultChanged();
+
+    // Push per-node results back into the graph's node objects so QML delegates update.
+    // The nodeResults map uses the serialized node ID (pointer-as-string).
+    QJsonObject nodeResults = resultObj["nodeResults"].toObject();
+    if (!nodeResults.isEmpty()) {
+        auto* graphObj = m_quickWidget->rootObject()
+                             ? m_quickWidget->rootObject()->findChild<WorkflowGraph*>("WorkflowGraph")
+                             : nullptr;
+        if (graphObj) {
+            for (auto* node : graphObj->get_nodes()) {
+                if (!node) continue;
+                QString nodeId = QString::number(reinterpret_cast<quintptr>(node));
+                if (nodeResults.contains(nodeId) && !nodeResults[nodeId].isNull()) {
+                    QJsonValue val = nodeResults[nodeId];
+                    // Only update Display nodes (not input nodes like String)
+                    if (auto* uNode = dynamic_cast<UtilityNode*>(node)) {
+                        if (uNode->subtype() == "Display" || uNode->subtype() == "display") {
+                            uNode->setPropertyValue("value", val.toVariant());
+                        }
+                    }
+                    // Update ModuleMethodNode execution result
+                    if (auto* mNode = dynamic_cast<ModuleMethodNode*>(node)) {
+                        mNode->setExecutionResult(val.toVariant());
+                        mNode->setExecutionStatus("success");
+                    }
+                }
+            }
+        }
+    }
 
     // Add to history
     m_executionHistory.prepend(QJsonValue(resultObj));
@@ -139,6 +206,12 @@ void CanvasWidget::executeWorkflow(const QString& workflowJson)
     emit executionHistoryChanged();
 
     emit executionCompleted(resultObj["executionId"].toString(), resultObj);
+}
+
+void CanvasWidget::clearLastExecutionResult()
+{
+    m_lastExecutionResult.clear();
+    emit lastExecutionResultChanged();
 }
 
 void CanvasWidget::deployWorkflow(const QString& workflowId, const QString& workflowJson)

@@ -12,8 +12,15 @@ Qan.NodeItem {
     width: 200
     height: 70
 
-    Qan.RectNodeTemplate {
-        nodeItem: parent
+    Rectangle {
+        anchors.fill: parent
+        z: -1
+        radius: 6
+        color: "#2e2214"
+        border.color: "#ffa726"
+        border.width: 2
+        antialiasing: true
+        opacity: 0.95
 
         ColumnLayout {
             anchors.fill: parent

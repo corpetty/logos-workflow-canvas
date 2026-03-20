@@ -26,6 +26,7 @@ class CanvasWidget : public QWidget
     Q_PROPERTY(QJsonArray nodeTypeDefinitions READ nodeTypeDefinitions NOTIFY nodeTypesChanged)
     Q_PROPERTY(QString connectionStatus READ connectionStatus NOTIFY connectionStatusChanged)
     Q_PROPERTY(QJsonArray executionHistory READ executionHistory NOTIFY executionHistoryChanged)
+    Q_PROPERTY(QString lastExecutionResult READ lastExecutionResult NOTIFY lastExecutionResultChanged)
 
 public:
     explicit CanvasWidget(LogosAPI* logosAPI, QWidget* parent = nullptr);
@@ -34,6 +35,7 @@ public:
     QJsonArray nodeTypeDefinitions() const { return m_nodeTypes; }
     QString connectionStatus() const { return m_connectionStatus; }
     QJsonArray executionHistory() const { return m_executionHistory; }
+    QString lastExecutionResult() const { return m_lastExecutionResult; }
 
 public slots:
     /**
@@ -73,10 +75,16 @@ public slots:
      */
     void deployWorkflow(const QString& workflowId, const QString& workflowJson);
 
+    /**
+     * @brief Clear the last execution result (hides the result panel)
+     */
+    void clearLastExecutionResult();
+
 signals:
     void nodeTypesChanged();
     void connectionStatusChanged();
     void executionHistoryChanged();
+    void lastExecutionResultChanged();
 
     // Execution events forwarded to QML for visualization
     void executionStarted(const QString& executionId);
@@ -96,4 +104,5 @@ private:
     QJsonArray m_nodeTypes;
     QString m_connectionStatus = "disconnected";
     QJsonArray m_executionHistory;
+    QString m_lastExecutionResult;
 };

@@ -8,6 +8,11 @@ QQmlComponent* ModuleMethodNode::delegate(QQmlEngine& engine, QObject* parent)
     static std::unique_ptr<QQmlComponent> delegate;
     if (!delegate) {
         delegate = std::make_unique<QQmlComponent>(&engine, "qrc:/qml/delegates/ModuleNodeDelegate.qml");
+        if (delegate->isError()) {
+            qWarning() << "[canvas] ModuleNodeDelegate ERRORS:" << delegate->errors();
+        } else {
+            qDebug() << "[canvas] ModuleNodeDelegate loaded OK";
+        }
     }
     return delegate.get();
 }

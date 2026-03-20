@@ -13,8 +13,16 @@ Qan.NodeItem {
     width: 220
     height: Math.max(80, contentColumn.implicitHeight + 20)
 
-    Qan.RectNodeTemplate {
-        nodeItem: parent
+    // Solid background rectangle (drawn behind ports at z:-1)
+    Rectangle {
+        anchors.fill: parent
+        z: -1
+        radius: 6
+        color: "#1a1a2e"
+        border.color: node ? (node.nodeColor || "#4a9eff") : "#4a9eff"
+        border.width: 2
+        antialiasing: true
+        opacity: 0.95
 
         ColumnLayout {
             id: contentColumn
@@ -27,7 +35,7 @@ Qan.NodeItem {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 28
                 radius: 4
-                color: node ? node.nodeColor : "#4a9eff"
+                color: node ? (node.nodeColor || "#4a9eff") : "#4a9eff"
 
                 RowLayout {
                     anchors.fill: parent
@@ -68,8 +76,8 @@ Qan.NodeItem {
             Text {
                 Layout.leftMargin: 8
                 Layout.topMargin: 4
-                text: node ? node.moduleName : ""
-                color: "#6e7681"
+                text: node ? (node.moduleName || "") : ""
+                color: "#8b949e"
                 font.pixelSize: 10
             }
 
@@ -100,12 +108,15 @@ Qan.NodeItem {
                     elide: Text.ElideRight
                 }
             }
+
+            Item { Layout.fillHeight: true }
         }
     }
 
-    // Execution status border overlay
+    // Execution status border overlay (non-interactive, purely visual)
     Rectangle {
         anchors.fill: parent
+        z: -1
         color: "transparent"
         radius: 6
         border.width: {
@@ -122,7 +133,6 @@ Qan.NodeItem {
             }
         }
 
-        // Running animation
         SequentialAnimation on border.color {
             running: node && node.executionStatus === "running"
             loops: Animation.Infinite
