@@ -110,6 +110,14 @@ target_link_libraries(workflow_canvas PRIVATE
 
 # Output properties
 if(APPLE)
+    # LogosAPI / LogosAPIClient are resolved by the HOST at load time — this
+    # plugin deliberately links liblogos's headers but not its library. ELF
+    # allows a shared object to carry undefined symbols, so Linux links clean;
+    # macOS ld does not, and fails with "symbol(s) not found for architecture
+    # arm64" on LogosAPI::getClient and LogosAPIClient::invokeRemoteMethod.
+    # Defer them, the same way logos-module-builder's LogosModule.cmake does
+    # for the module plugins it builds.
+    target_link_options(workflow_canvas PRIVATE -undefined dynamic_lookup)
     set_target_properties(workflow_canvas PROPERTIES PREFIX "" SUFFIX ".dylib")
 else()
     set_target_properties(workflow_canvas PROPERTIES PREFIX "" SUFFIX ".so")
