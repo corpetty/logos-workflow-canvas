@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/">
+        <file alias="icons/workflow.png">../src/icons/workflow.png</file>
         <file alias="qml/WorkflowCanvas.qml">../qml/WorkflowCanvas.qml</file>
         <file alias="qml/delegates/ModuleNodeDelegate.qml">../qml/delegates/ModuleNodeDelegate.qml</file>
         <file alias="qml/delegates/UtilityNodeDelegate.qml">../qml/delegates/UtilityNodeDelegate.qml</file>

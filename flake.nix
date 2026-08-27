@@ -10,19 +10,29 @@
       url = "github:cneben/QuickQanava";
       flake = false;
     };
+
+    # Packages the built plugin into a .lgx. This module keeps its own
+    # derivation rather than going through logos-module-builder, because the
+    # QuickQanava vendoring (a second shared library plus its QML module, with
+    # RPATHs rewritten so both halves load the same .so) has no expression in
+    # mkLogosModule. The bundler works on any derivation, so `lgx-portable` —
+    # the output the module release pipeline builds — can sit on top of the
+    # existing build untouched.
+    nix-bundle-lgx.url = "github:logos-co/nix-bundle-lgx";
   };
 
-  outputs = { self, nixpkgs, logos-cpp-sdk, logos-liblogos, quickqanava }:
+  outputs = { self, nixpkgs, logos-cpp-sdk, logos-liblogos, quickqanava, nix-bundle-lgx }:
     let
       systems = [ "aarch64-darwin" "x86_64-darwin" "aarch64-linux" "x86_64-linux" ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f {
+        inherit system;
         pkgs = import nixpkgs { inherit system; };
         logosSdk = logos-cpp-sdk.packages.${system}.default;
         logosLiblogos = logos-liblogos.packages.${system}.default;
       });
     in
     {
-      packages = forAllSystems ({ pkgs, logosSdk, logosLiblogos }:
+      packages = forAllSystems ({ system, pkgs, logosSdk, logosLiblogos }:
         let
           # ── QuickQanava as a shared Nix package ────────────────────────
           quickqanavaPackage = pkgs.stdenv.mkDerivation {
@@ -111,7 +121,8 @@
             };
           };
         in
-        {
+        # `rec` so lgx-portable below can wrap `default`.
+        rec {
           # Expose QuickQanava as a standalone package for inspection
           quickqanava = quickqanavaPackage;
 
@@ -168,6 +179,14 @@
               platforms = pkgs.lib.platforms.unix;
             };
           };
+
+          # What the module release pipeline builds. `portable` runs the output
+          # through nix-bundle-dir first, so the .lgx carries its own closure
+          # instead of depending on /nix/store paths on the installing machine.
+          # The bundler reads metadata.json from the derivation's `src`, which
+          # is this repo root — the same file the release action cross-checks
+          # the built artifact's name and version against.
+          lgx-portable = nix-bundle-lgx.bundlers.${system}.portable default;
         }
       );
     };
