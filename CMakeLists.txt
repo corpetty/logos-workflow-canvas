@@ -151,6 +151,20 @@ target_link_libraries(workflow_canvas PRIVATE
     nlohmann_json::nlohmann_json
 )
 
+# RPATH: $ORIGIN, so the co-located libQuickQanava.so resolves.
+#
+# The plugin ships its own QuickQanava beside it in the module directory, and
+# the install bundler strips RUNPATH from what it stages — so without this the
+# loader cannot find libQuickQanava.so, dlopen of the plugin fails, and the
+# widget is silently never created. It presents as the canvas doing nothing on
+# click while its module dependencies load fine. Every module the builder
+# produces carries $ORIGIN first for the same reason; this derivation is
+# hand-rolled and has to say so itself.
+set_target_properties(workflow_canvas PROPERTIES
+    INSTALL_RPATH "$ORIGIN"
+    BUILD_WITH_INSTALL_RPATH ON
+)
+
 # Output properties
 if(APPLE)
     # LogosAPI / LogosAPIClient are resolved by the HOST at load time — this
