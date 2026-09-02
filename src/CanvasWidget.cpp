@@ -10,6 +10,7 @@
 
 #include <QDebug>
 #include <QDir>
+#include <QFileInfo>
 #include <QFile>
 #include <QJsonDocument>
 #include <QStandardPaths>
@@ -18,6 +19,36 @@
 #include <QCoreApplication>
 #include <QtQml/qqml.h>
 #include "QuickQanava.h"
+
+#if !defined(_WIN32)
+#  include <dlfcn.h>
+#endif
+
+namespace {
+
+// The directory this plugin's own shared object was loaded from.
+//
+// The QuickQanava QML module ships INSIDE the plugin directory, so the import
+// path is always "<my own dir>/qt-6/qml" — but where that directory IS depends
+// on how the plugin was installed: the app bundle's plugins/, the user data
+// directory, or a portable tree. Guessing at those locations meant the canvas
+// silently rendered nothing whenever it was installed somewhere the list did
+// not anticipate — which is what an app-bundle install did.
+//
+// Asking the loader removes the guess entirely.
+QString pluginDirectory()
+{
+#if !defined(_WIN32)
+    Dl_info info{};
+    // Any symbol defined in this library identifies it; the address of a
+    // function in this translation unit is the cheapest one to hand.
+    if (dladdr(reinterpret_cast<const void*>(&pluginDirectory), &info) && info.dli_fname)
+        return QFileInfo(QString::fromUtf8(info.dli_fname)).absolutePath();
+#endif
+    return QString();
+}
+
+} // namespace
 
 CanvasWidget::CanvasWidget(LogosAPI* logosAPI, QWidget* parent)
     : QWidget(parent)
@@ -49,24 +80,33 @@ void CanvasWidget::setupUI()
     // app's own lib directory.
     QString appDataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QStringList qmlSearchPaths;
-    // LOGOS_USER_DIR wins when the host was launched with --user-dir: the
-    // plugin is then staged under that tree, while AppDataLocation still
-    // points at the default one. Without this, a host running against an
-    // isolated data directory finds no QuickQanava and the canvas comes up
-    // empty.
+    // First choice: beside this very .so. Exact for every install layout.
+    const QString ownDir = pluginDirectory();
+    if (!ownDir.isEmpty())
+        qmlSearchPaths << ownDir + "/qt-6/qml";
+    // Then the historical guesses, kept as a fallback.
     const QString userDir = qEnvironmentVariable("LOGOS_USER_DIR");
     if (!userDir.isEmpty())
         qmlSearchPaths << userDir + "/plugins/workflow_canvas/qt-6/qml";
     qmlSearchPaths
         << appDataDir + "Nix/plugins/workflow_canvas/qt-6/qml"    // Non-portable (Nix dev)
         << appDataDir + "/plugins/workflow_canvas/qt-6/qml"       // Portable
+        << QCoreApplication::applicationDirPath() + "/../plugins/workflow_canvas/qt-6/qml"
         << QCoreApplication::applicationDirPath() + "/../lib/qt-6/qml";  // App output
+    bool foundQanava = false;
     for (const QString& path : qmlSearchPaths) {
         if (QDir(path + "/QuickQanava").exists()) {
             m_quickWidget->engine()->addImportPath(path);
             qDebug() << "[canvas] Added QML import path:" << path;
+            foundQanava = true;
             break;
         }
+    }
+    if (!foundQanava) {
+        // Say so loudly. Without QuickQanava the view fails to compile and the
+        // canvas comes up blank with nothing in the log explaining why.
+        qWarning() << "[canvas] QuickQanava QML module not found; the graph "
+                      "will not render. Looked in:" << qmlSearchPaths;
     }
 
     // Initialize QuickQanava: registers default styles and edge path components
