@@ -348,3 +348,42 @@ void WorkflowGraph::clearGraph() noexcept
     }
     m_nodeCounter = 0;
 }
+
+void WorkflowGraph::applyNodeResults(const QString& resultJson)
+{
+    if (resultJson.isEmpty())
+        return;
+
+    const QJsonObject result = QJsonDocument::fromJson(resultJson.toUtf8()).object();
+    const QJsonObject nodeResults = result.value(QStringLiteral("nodeResults")).toObject();
+    if (nodeResults.isEmpty())
+        return;
+
+    for (auto* node : get_nodes()) {
+        if (!node)
+            continue;
+
+        // Same id serializeToJson() wrote, so the engine's keys line up.
+        const QString nodeId = QString::number(reinterpret_cast<quintptr>(node));
+        if (!nodeResults.contains(nodeId))
+            continue;
+
+        const QJsonValue value = nodeResults.value(nodeId);
+        if (value.isNull())
+            continue;
+
+        // Display nodes show a value; the input nodes (String, Number, ...)
+        // must keep what the author typed.
+        if (auto* utility = dynamic_cast<UtilityNode*>(node)) {
+            const QString subtype = utility->subtype();
+            if (subtype.compare(QStringLiteral("Display"), Qt::CaseInsensitive) == 0)
+                utility->setPropertyValue(QStringLiteral("value"), value.toVariant());
+            continue;
+        }
+
+        if (auto* method = dynamic_cast<ModuleMethodNode*>(node)) {
+            method->setExecutionResult(value.toVariant());
+            method->setExecutionStatus(QStringLiteral("success"));
+        }
+    }
+}

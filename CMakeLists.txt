@@ -1,124 +1,117 @@
 cmake_minimum_required(VERSION 3.16)
-project(WorkflowCanvasPlugin VERSION 1.0.0 LANGUAGES CXX)
+project(WorkflowCanvasPlugin LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-# Add local cmake modules (stub FindOpenGL for headless builds)
-list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
-
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Quick Qml QuickWidgets QuickControls2)
-
-# QuickQanava — prefer pre-built shared library (Nix), fall back to vendored subdirectory
-if(DEFINED QUICKQANAVA_ROOT AND EXISTS "${QUICKQANAVA_ROOT}/lib")
-    message(STATUS "Using pre-built QuickQanava from: ${QUICKQANAVA_ROOT}")
-    add_library(QuickQanava SHARED IMPORTED)
-    find_library(QUICKQANAVA_LIB NAMES QuickQanava
-                 PATHS "${QUICKQANAVA_ROOT}/lib" NO_DEFAULT_PATH)
-    set_target_properties(QuickQanava PROPERTIES
-        IMPORTED_LOCATION "${QUICKQANAVA_LIB}"
-        INTERFACE_INCLUDE_DIRECTORIES "${QUICKQANAVA_ROOT}/include/QuickQanava"
-    )
-elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vendor/QuickQanava/CMakeLists.txt")
-    message(STATUS "Building QuickQanava from vendored subdirectory")
-    set(QUICK_QANAVA_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
-    add_subdirectory(vendor/QuickQanava)
+if(DEFINED ENV{LOGOS_MODULE_BUILDER_ROOT})
+    include($ENV{LOGOS_MODULE_BUILDER_ROOT}/cmake/LogosModule.cmake)
 else()
-    message(FATAL_ERROR "QuickQanava not found. Either set QUICKQANAVA_ROOT or run: git clone https://github.com/cneben/QuickQanava.git vendor/QuickQanava")
+    message(FATAL_ERROR "LogosModule.cmake not found. Set LOGOS_MODULE_BUILDER_ROOT.")
 endif()
 
-# Component interfaces (IComponent)
-find_package(component-interfaces QUIET)
-if(NOT component-interfaces_FOUND)
-    include_directories(${CMAKE_CURRENT_SOURCE_DIR}/interfaces)
-    add_library(component-interfaces INTERFACE)
-    target_include_directories(component-interfaces INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/interfaces)
-endif()
+# Module name from metadata.json — single source of truth.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/metadata.json" METADATA_JSON)
+string(JSON MODULE_NAME GET ${METADATA_JSON} name)
 
-# Logos SDK
-if(NOT DEFINED LOGOS_CPP_SDK_ROOT)
-    if(DEFINED ENV{LOGOS_CPP_SDK_ROOT})
-        set(LOGOS_CPP_SDK_ROOT "$ENV{LOGOS_CPP_SDK_ROOT}")
-    else()
-        set(LOGOS_CPP_SDK_ROOT "${CMAKE_SOURCE_DIR}/../logos-cpp-sdk")
-    endif()
-endif()
-if(NOT DEFINED LOGOS_LIBLOGOS_ROOT)
-    if(DEFINED ENV{LOGOS_LIBLOGOS_ROOT})
-        set(LOGOS_LIBLOGOS_ROOT "$ENV{LOGOS_LIBLOGOS_ROOT}")
-    else()
-        set(LOGOS_LIBLOGOS_ROOT "${CMAKE_SOURCE_DIR}/../logos-liblogos")
-    endif()
-endif()
-
-set(SOURCES
-    src/CanvasComponent.cpp
-    src/CanvasWidget.cpp
-    src/WorkflowGraph.cpp
-    src/nodes/ModuleMethodNode.cpp
-    src/nodes/UtilityNode.cpp
-    src/nodes/ControlFlowNode.cpp
-    src/nodes/TransformNode.cpp
-    src/nodes/TriggerNode.cpp
-    src/WorkflowSerializer.cpp
-    resources/canvas_resources.qrc
+# ── The ui-host backend ──────────────────────────────────────────────────
+#
+# Universal UI module: we write the .rep view contract and the *Backend class.
+# REP_FILE runs repc; the generated *Plugin glue compiles automatically. This
+# half runs in the ui-host process and does nothing but call the three
+# workflow modules.
+logos_module(
+    NAME ${MODULE_NAME}
+    REP_FILE src/workflow_canvas.rep
+    SOURCES
+        src/workflow_canvas_backend.h
+        src/workflow_canvas_backend.cpp
+    INCLUDE_DIRS
+        src
 )
 
-add_library(workflow_canvas SHARED ${SOURCES})
+# ── The view-side QML plugin ─────────────────────────────────────────────
+#
+# The backend above cannot register QML types for the view: it lives in a
+# different process. The view runs in the host application's QML engine, and
+# basecamp's QML sandbox prepends this module's install directory to that
+# engine's import path — so a QML module installed at <installDir>/WorkflowCanvas
+# is importable as `import WorkflowCanvas 1.0`.
+#
+# That is what carries WorkflowGraph, the five typed node classes and the
+# serializer across the move to ui_qml unchanged, instead of rewriting the
+# graph model in JavaScript.
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
 
-target_include_directories(workflow_canvas PRIVATE
+# QUICKQANAVA_ROOT comes from the flake's preConfigure (an env var), or may be
+# passed on the command line for a plain CMake build.
+if(NOT QUICKQANAVA_ROOT AND DEFINED ENV{QUICKQANAVA_ROOT})
+    set(QUICKQANAVA_ROOT "$ENV{QUICKQANAVA_ROOT}")
+endif()
+if(NOT QUICKQANAVA_ROOT OR NOT EXISTS "${QUICKQANAVA_ROOT}/lib")
+    message(FATAL_ERROR "QUICKQANAVA_ROOT must point at a built QuickQanava")
+endif()
+
+add_library(QuickQanava SHARED IMPORTED)
+find_library(QUICKQANAVA_LIB NAMES QuickQanava
+             PATHS "${QUICKQANAVA_ROOT}/lib" NO_DEFAULT_PATH REQUIRED)
+set_target_properties(QuickQanava PROPERTIES
+    IMPORTED_LOCATION "${QUICKQANAVA_LIB}"
+    INTERFACE_INCLUDE_DIRECTORIES "${QUICKQANAVA_ROOT}/include/QuickQanava"
+)
+
+qt_add_library(workflowcanvasqml SHARED)
+
+qt_add_qml_module(workflowcanvasqml
+    URI WorkflowCanvas
+    VERSION 1.0
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/qml-modules/WorkflowCanvas"
+    SOURCES
+        src/WorkflowGraph.h
+        src/WorkflowGraph.cpp
+        src/WorkflowSerializer.h
+        src/WorkflowSerializer.cpp
+        src/nodes/ModuleMethodNode.h
+        src/nodes/ModuleMethodNode.cpp
+        src/nodes/UtilityNode.h
+        src/nodes/UtilityNode.cpp
+        src/nodes/ControlFlowNode.h
+        src/nodes/ControlFlowNode.cpp
+        src/nodes/TransformNode.h
+        src/nodes/TransformNode.cpp
+        src/nodes/TriggerNode.h
+        src/nodes/TriggerNode.cpp
+)
+
+# The node delegates travel inside this library as Qt resources; the node
+# classes load them by qrc: URL.
+qt_add_resources(workflowcanvasqml "canvas_delegates"
+    PREFIX "/"
+    BASE "${CMAKE_CURRENT_SOURCE_DIR}"
+    FILES
+        qml/delegates/ModuleNodeDelegate.qml
+        qml/delegates/UtilityNodeDelegate.qml
+        qml/delegates/ControlFlowDelegate.qml
+        qml/delegates/TransformNodeDelegate.qml
+        qml/delegates/TriggerNodeDelegate.qml
+        src/icons/workflow.png
+)
+
+target_include_directories(workflowcanvasqml PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/nodes
-    ${CMAKE_CURRENT_SOURCE_DIR}/interfaces
 )
-# QuickQanava headers — use pre-built path or vendored source
-if(DEFINED QUICKQANAVA_ROOT AND EXISTS "${QUICKQANAVA_ROOT}/include/QuickQanava")
-    target_include_directories(workflow_canvas PRIVATE ${QUICKQANAVA_ROOT}/include/QuickQanava)
-else()
-    target_include_directories(workflow_canvas PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor/QuickQanava/src)
-endif()
 
-# SDK includes
-if(EXISTS "${LOGOS_CPP_SDK_ROOT}/cpp/logos_api.h")
-    target_include_directories(workflow_canvas PRIVATE ${LOGOS_CPP_SDK_ROOT}/cpp)
-elseif(EXISTS "${LOGOS_CPP_SDK_ROOT}/include/cpp/logos_api.h")
-    target_include_directories(workflow_canvas PRIVATE
-        ${LOGOS_CPP_SDK_ROOT}/include
-        ${LOGOS_CPP_SDK_ROOT}/include/cpp
-        ${LOGOS_CPP_SDK_ROOT}/include/core
-    )
-endif()
-
-if(EXISTS "${LOGOS_LIBLOGOS_ROOT}/interface.h")
-    target_include_directories(workflow_canvas PRIVATE ${LOGOS_LIBLOGOS_ROOT})
-elseif(EXISTS "${LOGOS_LIBLOGOS_ROOT}/include/interface.h")
-    target_include_directories(workflow_canvas PRIVATE ${LOGOS_LIBLOGOS_ROOT}/include)
-endif()
-
-target_link_libraries(workflow_canvas PRIVATE
-    Qt6::Core
-    Qt6::Widgets
-    Qt6::Quick
-    Qt6::Qml
-    Qt6::QuickWidgets
-    Qt6::QuickControls2
-    component-interfaces
+target_link_libraries(workflowcanvasqml PRIVATE
+    Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2
     QuickQanava
 )
 
-# Output properties
-if(APPLE)
-    # LogosAPI / LogosAPIClient are resolved by the HOST at load time — this
-    # plugin deliberately links liblogos's headers but not its library. ELF
-    # allows a shared object to carry undefined symbols, so Linux links clean;
-    # macOS ld does not, and fails with "symbol(s) not found for architecture
-    # arm64" on LogosAPI::getClient and LogosAPIClient::invokeRemoteMethod.
-    # Defer them, the same way logos-module-builder's LogosModule.cmake does
-    # for the module plugins it builds.
-    target_link_options(workflow_canvas PRIVATE -undefined dynamic_lookup)
-    set_target_properties(workflow_canvas PROPERTIES PREFIX "" SUFFIX ".dylib")
-else()
-    set_target_properties(workflow_canvas PROPERTIES PREFIX "" SUFFIX ".so")
-endif()
+# Both this plugin and QuickQanava's own QML plugin must resolve the SAME
+# libQuickQanava at runtime, and it ships beside them in the module's lib/.
+set_target_properties(workflowcanvasqml PROPERTIES
+    INSTALL_RPATH "$ORIGIN/.."
+    BUILD_WITH_INSTALL_RPATH ON
+)
+
+# NOTE: no install() rule for this target. The module build supplies its own
+# installPhase and never runs `ninja install`, so CMake install rules are
+# ignored — the flake's postInstall stages qml-modules/WorkflowCanvas and the
+# backing library out of the build tree instead.

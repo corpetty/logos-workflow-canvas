@@ -1,7 +1,11 @@
 <RCC>
     <qresource prefix="/">
         <file alias="icons/workflow.png">../src/icons/workflow.png</file>
-        <file alias="qml/WorkflowCanvas.qml">../qml/WorkflowCanvas.qml</file>
+        <!-- The node delegates only. The main view (qml/WorkflowCanvas.qml) is
+             NOT here any more: a ui_qml module's entry view is loaded from the
+             install directory on disk, and the C++ node classes reference these
+             delegates by qrc: URL, which resolves process-wide once this
+             library is loaded into the view's engine. -->
         <file alias="qml/delegates/ModuleNodeDelegate.qml">../qml/delegates/ModuleNodeDelegate.qml</file>
         <file alias="qml/delegates/UtilityNodeDelegate.qml">../qml/delegates/UtilityNodeDelegate.qml</file>
         <file alias="qml/delegates/ControlFlowDelegate.qml">../qml/delegates/ControlFlowDelegate.qml</file>

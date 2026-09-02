@@ -48,6 +48,22 @@ public:
      */
     Q_INVOKABLE void clearGraph() noexcept override;
 
+    /**
+     * @brief Paint an engine execution result back onto the graph's nodes.
+     *
+     * Display nodes take the value, module-method nodes take their result and
+     * a success status. Matching is by the same pointer-derived id
+     * serializeToJson() writes, which is why this belongs here rather than in
+     * the view: nothing else knows how those ids are made.
+     *
+     * Used to live in CanvasWidget, which could reach the live nodes because
+     * it shared a process with them. A ui_qml backend does not, so the view
+     * calls this with the result JSON the backend publishes.
+     *
+     * @param resultJson the engine's execution result object
+     */
+    Q_INVOKABLE void applyNodeResults(const QString& resultJson);
+
 private:
     qan::Node* createModuleMethodNode(const QJsonObject& def);
     qan::Node* createUtilityNode(const QJsonObject& def);

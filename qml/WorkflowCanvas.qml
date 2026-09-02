@@ -12,11 +12,51 @@ Rectangle {
     id: root
     color: "#0d1117"
 
-    // The canvasWidget C++ object is injected via setContextProperty
-    // canvasWidget.nodeTypeDefinitions — array of node type defs
-    // canvasWidget.executeWorkflow(json) — run the workflow
-    // canvasWidget.saveWorkflow(name, json) — persist to disk
-    // canvasWidget.loadWorkflow(name) — load from disk
+    // The backend is a QtRO replica of WorkflowCanvasBackend, which runs in
+    // the ui-host process (see src/workflow_canvas.rep). Its PROPs auto-sync;
+    // its SLOTs are calls. Everything it publishes crosses as JSON text.
+    readonly property var backend: logos.module("workflow_canvas")
+    property bool ready: false
+
+    // nodeTypeDefinitions is a JSON STRING on the replica, not an array —
+    // QtRO carries text, not QJsonArray. Parsed once here rather than at each
+    // use site.
+    readonly property var nodeTypes: {
+        if (!backend || !backend.nodeTypeDefinitions)
+            return []
+        try {
+            return JSON.parse(backend.nodeTypeDefinitions)
+        } catch (e) {
+            console.warn("[canvas] could not parse node type definitions:", e)
+            return []
+        }
+    }
+
+    readonly property string connectionStatus:
+        backend ? backend.connectionStatus : "disconnected"
+    readonly property string lastExecutionResult:
+        backend ? backend.lastExecutionResult : ""
+
+    Connections {
+        target: logos
+        function onViewModuleReadyChanged(moduleName, isReady) {
+            if (moduleName === "workflow_canvas")
+                root.ready = isReady && root.backend !== null
+        }
+    }
+    Component.onCompleted: {
+        root.ready = root.backend !== null && logos.isViewModuleReady("workflow_canvas")
+    }
+
+    // The engine's per-node results are painted back onto the graph here.
+    // CanvasWidget used to do this by reaching into the live node objects; the
+    // backend is in another process now, so it publishes the result and the
+    // graph applies it (the id scheme is the serializer's, so the graph owns
+    // the matching).
+    onLastExecutionResultChanged: {
+        if (root.lastExecutionResult)
+            graph.applyNodeResults(root.lastExecutionResult)
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -84,7 +124,7 @@ Rectangle {
                         var json = graph.serializeToJson()
                         console.log("[canvas] Workflow JSON length:", json.length)
                         console.log("[canvas] Workflow JSON:", json)
-                        canvasWidget.executeWorkflow(json)
+                        backend.executeWorkflow(json)
                     }
                 }
 
@@ -104,7 +144,7 @@ Rectangle {
                         z: 10
                         onClicked: {
                             if (saveNameField.text.length > 0) {
-                                canvasWidget.saveWorkflow(saveNameField.text, graph.serializeToJson())
+                                backend.saveWorkflow(saveNameField.text, graph.serializeToJson())
                                 saveConfirm.text = "Saved: " + saveNameField.text
                                 saveConfirm.visible = true
                                 saveConfirmTimer.restart()
@@ -131,11 +171,11 @@ Rectangle {
                 // Connection status
                 Rectangle {
                     width: statusLabel.width + 16; height: 24; radius: 12
-                    color: canvasWidget.connectionStatus === "connected" ? "#238636" : "#6e7681"
+                    color: root.connectionStatus === "connected" ? "#238636" : "#6e7681"
                     Text {
                         id: statusLabel
                         anchors.centerIn: parent
-                        text: canvasWidget.connectionStatus === "connected" ? "CONNECTED" : "OFFLINE"
+                        text: root.connectionStatus === "connected" ? "CONNECTED" : "OFFLINE"
                         color: "white"; font.pixelSize: 10; font.bold: true
                     }
                 }
@@ -181,7 +221,7 @@ Rectangle {
                         spacing: 2
 
                         model: {
-                            var defs = canvasWidget.nodeTypeDefinitions
+                            var defs = root.nodeTypes
                             var query = searchField.text.toLowerCase()
                             if (query.length === 0) return defs
                             return defs.filter(function(d) {
@@ -321,9 +361,9 @@ Rectangle {
         Rectangle {
             id: resultPanel
             Layout.fillWidth: true
-            Layout.preferredHeight: canvasWidget.lastExecutionResult ? Math.min(150, resultOutput.implicitHeight + 32) : 0
+            Layout.preferredHeight: root.lastExecutionResult ? Math.min(150, resultOutput.implicitHeight + 32) : 0
             color: "#161b22"
-            visible: canvasWidget.lastExecutionResult !== ""
+            visible: root.lastExecutionResult !== ""
             clip: true
 
             Behavior on Layout.preferredHeight { NumberAnimation { duration: 200 } }
@@ -347,7 +387,7 @@ Rectangle {
                         palette.buttonText: "#6e7681"
                         font.pixelSize: 12
                         z: 10
-                        onClicked: canvasWidget.clearLastExecutionResult()
+                        onClicked: backend.clearLastExecutionResult()
                     }
                 }
 
@@ -361,10 +401,10 @@ Rectangle {
                         width: resultPanel.width - 12
                         text: {
                             try {
-                                var obj = JSON.parse(canvasWidget.lastExecutionResult || "{}")
+                                var obj = JSON.parse(root.lastExecutionResult || "{}")
                                 return JSON.stringify(obj, null, 2)
                             } catch(e) {
-                                return canvasWidget.lastExecutionResult || ""
+                                return root.lastExecutionResult || ""
                             }
                         }
                         color: "#88ccff"
@@ -392,7 +432,7 @@ Rectangle {
                     color: "#6e7681"; font.pixelSize: 11
                 }
                 Text {
-                    text: "Status: " + canvasWidget.connectionStatus
+                    text: "Status: " + root.connectionStatus
                     color: "#6e7681"; font.pixelSize: 11
                 }
                 Item { Layout.fillWidth: true }

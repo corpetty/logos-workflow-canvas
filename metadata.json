@@ -1,16 +1,37 @@
 {
   "name": "workflow_canvas",
+  "display_name": "Workflow Canvas",
   "version": "1.0.0",
-  "description": "Visual workflow editor using QuickQanava — drag, drop, and wire Logos module operations into executable pipelines",
-  "author": "Logos Core Team",
-  "type": "ui",
+  "type": "ui_qml",
+  "interface": "universal",
   "category": "integration",
-  "main": "workflow_canvas",
-  "dependencies": ["workflow_registry", "workflow_engine"],
+  "description": "Visual workflow editor — drag, drop, and wire Logos module operations into executable pipelines",
+  "author": "Logos Core Team",
+  "main": "workflow_canvas_plugin",
+  "view": "qml/WorkflowCanvas.qml",
+  "icon": "src/icons/workflow.png",
+  "dependencies": [
+    "workflow_registry",
+    "workflow_engine",
+    "workflow_scheduler"
+  ],
+  "codegen": { "rep": "src/workflow_canvas.rep" },
   "capabilities": [
     "visual_workflow_editor",
     "node_graph_canvas",
     "workflow_authoring"
   ],
-  "icon": ":/icons/workflow.png"
+  "nix": {
+    "packages": {
+      "build": [],
+      "runtime": ["qt6.qtdeclarative", "zstd", "krb5"]
+    },
+    "external_libraries": [],
+    "cmake": {
+      "find_packages": ["Qt6Quick", "Qt6QuickControls2"],
+      "extra_sources": [],
+      "extra_include_dirs": [],
+      "extra_link_libraries": []
+    }
+  }
 }
