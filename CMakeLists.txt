@@ -110,6 +110,35 @@ foreach(_root "${LOGOS_CPP_SDK_ROOT}" "${LOGOS_LIBLOGOS_ROOT}")
     endif()
 endforeach()
 
+# LogosAPI::getClient lives in liblogos_qt_host, LogosAPIClient::invokeRemoteMethod
+# in liblogos_protocol. Both must be LINKED, not left undefined:
+#
+# The host binary exports NOTHING (it is not linked --export-dynamic; `nm -D`
+# on LogosBasecamp lists zero defined symbols), so a plugin that leaves these
+# undefined fails to dlopen and the widget is never created — which is exactly
+# how this presented: the canvas's declared module dependencies loaded, then
+# nothing, and no CanvasWidget object existed in the running app.
+#
+# Linking the SHARED libraries, not static copies, is also what keeps the token
+# ring intact: LogosAPI caches &TokenManager::instance(), so an image carrying
+# its own copy of that code would cache a DIFFERENT singleton than the host
+# wrote the token into (see the note in logos_api.h). The host has already
+# loaded both sonames by the time it dlopens this plugin, so the plugin binds
+# to the host's copies.
+foreach(_lib logos_qt_host logos_protocol)
+    find_library(LOGOS_LIB_${_lib} NAMES ${_lib}
+                 PATHS "${LOGOS_LIBLOGOS_ROOT}/lib" NO_DEFAULT_PATH)
+    if(LOGOS_LIB_${_lib})
+        target_link_libraries(workflow_canvas PRIVATE "${LOGOS_LIB_${_lib}}")
+        message(STATUS "Linking host runtime: ${LOGOS_LIB_${_lib}}")
+    else()
+        message(FATAL_ERROR
+            "lib${_lib} not found under ${LOGOS_LIBLOGOS_ROOT}/lib — the host "
+            "exports no symbols, so leaving LogosAPI undefined would fail at "
+            "dlopen with the widget never created.")
+    endif()
+endforeach()
+
 target_link_libraries(workflow_canvas PRIVATE
     Qt6::Core
     Qt6::Widgets
