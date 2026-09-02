@@ -6,8 +6,14 @@
     nixpkgs.follows = "logos-cpp-sdk/nixpkgs";
     logos-liblogos.url = "github:logos-co/logos-liblogos";
 
+    # PINNED, deliberately. The derivation below patches QuickQanava's
+    # src/CMakeLists.txt with sed to build it SHARED instead of STATIC. A sed
+    # that stops matching does not fail the build — it silently produces a
+    # static QuickQanava with no QML plugin, and the canvas then comes up with
+    # no graph. Floating this input makes that a time bomb, so it moves only
+    # when someone re-checks the patch.
     quickqanava = {
-      url = "github:cneben/QuickQanava";
+      url = "github:cneben/QuickQanava/9585b586ba5c07614dd5f2ffb4f44312e3d94bfe";
       flake = false;
     };
 
@@ -95,6 +101,17 @@
 
             installPhase = ''
               runHook preInstall
+
+              # The postPatch seds above are what make this build SHARED. If
+              # they stop matching, the build still succeeds and quietly yields
+              # a static QuickQanava with no QML plugin — and the canvas comes
+              # up with no graph, far from here. Fail at the source instead.
+              if [ ! -e src/libQuickQanava.so ] && [ ! -e src/libQuickQanava.dylib ]; then
+                echo "QuickQanava did not build as a shared library — the" >&2
+                echo "STATIC->SHARED patch in postPatch no longer matches" >&2
+                echo "this revision's src/CMakeLists.txt." >&2
+                exit 1
+              fi
 
               mkdir -p $out/lib $out/include/QuickQanava
 
