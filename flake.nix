@@ -2,186 +2,196 @@
   description = "Logos Workflow Canvas - Visual workflow editor using QuickQanava";
 
   inputs = {
-    logos-module-builder.url = "github:logos-co/logos-module-builder";
-
-    # The three workflow modules this view drives. All on the modernize
-    # branch until it merges: master still carries the pre-universal
-    # versions, which publish no .lidl contract for the typed modules()
-    # accessors to be generated from.
-    logos-workflow-registry = {
-      url = "github:corpetty/logos-workflow-registry/modernize-phase0";
-      inputs.logos-module-builder.follows = "logos-module-builder";
-    };
-    logos-workflow-engine = {
-      url = "github:corpetty/logos-workflow-engine/modernize-phase0";
-      inputs.logos-module-builder.follows = "logos-module-builder";
-      inputs.logos-workflow-registry.follows = "logos-workflow-registry";
-    };
-    logos-workflow-scheduler = {
-      url = "github:corpetty/logos-workflow-scheduler/modernize-phase0";
-      inputs.logos-module-builder.follows = "logos-module-builder";
-      inputs.logos-workflow-engine.follows = "logos-workflow-engine";
-    };
+    logos-cpp-sdk.url = "github:logos-co/logos-cpp-sdk";
+    nixpkgs.follows = "logos-cpp-sdk/nixpkgs";
+    logos-liblogos.url = "github:logos-co/logos-liblogos";
 
     quickqanava = {
       url = "github:cneben/QuickQanava";
       flake = false;
     };
+
+    # Packages the built plugin into a .lgx. This module keeps its own
+    # derivation rather than going through logos-module-builder, because the
+    # QuickQanava vendoring (a second shared library plus its QML module, with
+    # RPATHs rewritten so both halves load the same .so) has no expression in
+    # mkLogosModule. The bundler works on any derivation, so `lgx-portable` —
+    # the output the module release pipeline builds — can sit on top of the
+    # existing build untouched.
+    nix-bundle-lgx.url = "github:logos-co/nix-bundle-lgx";
   };
 
-  outputs = inputs@{ self, logos-module-builder, quickqanava, ... }:
+  outputs = { self, nixpkgs, logos-cpp-sdk, logos-liblogos, quickqanava, nix-bundle-lgx }:
     let
-      nixpkgs = logos-module-builder.inputs.nixpkgs;
       systems = [ "aarch64-darwin" "x86_64-darwin" "aarch64-linux" "x86_64-linux" ];
-      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f system);
+      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f {
+        inherit system;
+        pkgs = import nixpkgs { inherit system; };
+        logosSdk = logos-cpp-sdk.packages.${system}.default;
+        logosLiblogos = logos-liblogos.packages.${system}.default;
+      });
+    in
+    {
+      packages = forAllSystems ({ system, pkgs, logosSdk, logosLiblogos }:
+        let
+          # ── QuickQanava as a shared Nix package ────────────────────────
+          quickqanavaPackage = pkgs.stdenv.mkDerivation {
+            pname = "quickqanava";
+            version = "2.5.0";
+            src = quickqanava;
 
-      # ── QuickQanava as a shared Nix package ──────────────────────────
-      #
-      # Built SHARED, not static: the view engine loads QuickQanava's own QML
-      # plugin, and this module's QML plugin links the same library. Two copies
-      # would give the QML types two distinct C++ registrations and the graph
-      # would not accept our node classes.
-      quickqanavaFor = system:
-        let pkgs = import nixpkgs { inherit system; };
-        in pkgs.stdenv.mkDerivation {
-          pname = "quickqanava";
-          version = "2.5.0";
-          src = quickqanava;
+            nativeBuildInputs = [
+              pkgs.cmake pkgs.ninja pkgs.pkg-config
+              pkgs.qt6.wrapQtAppsHook
+              pkgs.patchelf
+            ];
+            buildInputs = [
+              pkgs.qt6.qtbase pkgs.qt6.qtdeclarative
+            ];
 
-          nativeBuildInputs = [
-            pkgs.cmake pkgs.ninja pkgs.pkg-config
-            pkgs.qt6.wrapQtAppsHook pkgs.patchelf
-          ];
-          buildInputs = [ pkgs.qt6.qtbase pkgs.qt6.qtdeclarative ];
+            # Patch: build as SHARED instead of STATIC, add stub FindOpenGL
+            postPatch = ''
+              # QuickQanava uses qt_add_qml_module with STATIC — change to SHARED
+              # so the QML plugin self-registers at runtime via the shared library.
+              sed -i '/^qt_add_qml_module(QuickQanava/,/^)/ s/^    STATIC$//' src/CMakeLists.txt
 
-          # QuickQanava's qt_add_qml_module is STATIC; make it SHARED so the
-          # QML plugin self-registers at runtime through the shared library.
-          # The FindOpenGL stub is for headless Nix builds.
-          postPatch = ''
-            sed -i '/^qt_add_qml_module(QuickQanava/,/^)/ s/^    STATIC$//' src/CMakeLists.txt
-            sed -i 's/qt_add_qml_module(QuickQanava/qt_add_library(QuickQanava SHARED)\nqt_add_qml_module(QuickQanava/' src/CMakeLists.txt
+              # Insert qt_add_library(QuickQanava SHARED) before qt_add_qml_module
+              sed -i 's/qt_add_qml_module(QuickQanava/qt_add_library(QuickQanava SHARED)\nqt_add_qml_module(QuickQanava/' src/CMakeLists.txt
 
-            mkdir -p cmake
-            cat > cmake/FindOpenGL.cmake << 'FINDGL'
-            if(NOT TARGET OpenGL::GL)
-              add_library(OpenGL::GL INTERFACE IMPORTED)
-            endif()
-            if(NOT TARGET OpenGL::OpenGL)
-              add_library(OpenGL::OpenGL INTERFACE IMPORTED)
-              target_link_libraries(OpenGL::OpenGL INTERFACE OpenGL::GL)
-            endif()
-            set(OpenGL_FOUND TRUE)
-            set(OPENGL_FOUND TRUE)
-            set(OpenGL_GL_FOUND TRUE)
-            FINDGL
-          '';
+              # Stub FindOpenGL for headless/Nix builds (QuickQanava uses OpenGL)
+              mkdir -p cmake
+              cat > cmake/FindOpenGL.cmake << 'FINDGL'
+              if(NOT TARGET OpenGL::GL)
+                add_library(OpenGL::GL INTERFACE IMPORTED)
+              endif()
+              if(NOT TARGET OpenGL::OpenGL)
+                add_library(OpenGL::OpenGL INTERFACE IMPORTED)
+                target_link_libraries(OpenGL::OpenGL INTERFACE OpenGL::GL)
+              endif()
+              set(OpenGL_FOUND TRUE)
+              set(OPENGL_FOUND TRUE)
+              set(OpenGL_GL_FOUND TRUE)
+              FINDGL
+            '';
 
-          cmakeFlags = [
-            "-GNinja"
-            "-DCMAKE_BUILD_TYPE=Release"
-            "-DQUICK_QANAVA_BUILD_SAMPLES=OFF"
-          ];
+            cmakeFlags = [
+              "-GNinja"
+              "-DCMAKE_BUILD_TYPE=Release"
+              "-DQUICK_QANAVA_BUILD_SAMPLES=OFF"
+              "-DCMAKE_MODULE_PATH=${placeholder "out"}/cmake"
+            ];
 
-          preConfigure = ''
-            export CMAKE_MODULE_PATH="$(pwd)/cmake:$CMAKE_MODULE_PATH"
-            cmakeFlagsArray+=("-DCMAKE_MODULE_PATH=$(pwd)/cmake")
-          '';
+            preConfigure = ''
+              # Make our stub FindOpenGL available during configure
+              export CMAKE_MODULE_PATH="$(pwd)/cmake:$CMAKE_MODULE_PATH"
+              cmakeFlagsArray+=("-DCMAKE_MODULE_PATH=$(pwd)/cmake")
+            '';
 
-          installPhase = ''
-            runHook preInstall
-            mkdir -p $out/lib $out/include/QuickQanava $out/qml/QuickQanava
+            installPhase = ''
+              runHook preInstall
 
-            cp -P src/libQuickQanava.so* $out/lib/ 2>/dev/null || true
-            cp -P src/libQuickQanava.dylib $out/lib/ 2>/dev/null || true
+              mkdir -p $out/lib $out/include/QuickQanava
 
-            # The QML module (qmldir + plugin), kept in a plain qml/ tree: the
-            # module install stages it next to the view, not into a Qt prefix.
-            if [ -d src/QuickQanava ]; then
-              cp -r src/QuickQanava/* $out/qml/QuickQanava/
-            fi
+              # Shared library
+              cp -P src/libQuickQanava.so* $out/lib/ 2>/dev/null || true
+              cp -P src/libQuickQanava.dylib $out/lib/ 2>/dev/null || true
 
-            # CMake leaves the BUILD directory on these RPATHs, which the
-            # tmpdir audit rejects (and which would be a dangling path at
-            # runtime anyway). Point them at the installed library instead.
-            # The module install rewrites them once more when it stages both
-            # halves side by side.
-            for so in $out/lib/libQuickQanava.so* $out/qml/QuickQanava/*.so; do
-              [ -f "$so" ] || continue
-              patchelf --set-rpath "$out/lib" "$so" || true
-            done
+              # QML module (qmldir + plugin) — installed to standard Qt QML path
+              mkdir -p $out/lib/qt-6/qml/QuickQanava
+              if [ -d src/QuickQanava ]; then
+                cp -r src/QuickQanava/* $out/lib/qt-6/qml/QuickQanava/
+              fi
 
-            cp $src/src/*.h $src/src/*.hpp $out/include/QuickQanava/ 2>/dev/null || true
-            cp -r $src/src/quickcontainers $out/include/QuickQanava/
-            cp -r $src/src/gtpo $out/include/QuickQanava/
+              # Fix RPATH on the QML plugin so it finds libQuickQanava.so
+              if [ -f $out/lib/qt-6/qml/QuickQanava/libQuickQanavaplugin.so ]; then
+                patchelf --set-rpath "$out/lib" $out/lib/qt-6/qml/QuickQanava/libQuickQanavaplugin.so
+              fi
 
-            runHook postInstall
-          '';
+              # Headers (both .h and .hpp template implementation files)
+              cp $src/src/*.h $src/src/*.hpp $out/include/QuickQanava/ 2>/dev/null || true
+              cp -r $src/src/quickcontainers $out/include/QuickQanava/
+              cp -r $src/src/gtpo $out/include/QuickQanava/
 
-          meta = {
-            description = "QuickQanava - Qt6 C++/QML graph drawing library";
-            platforms = nixpkgs.lib.platforms.unix;
+              runHook postInstall
+            '';
+
+            meta = {
+              description = "QuickQanava - Qt6 C++/QML graph drawing library";
+              platforms = pkgs.lib.platforms.unix;
+            };
           };
-        };
+        in
+        # `rec` so lgx-portable below can wrap `default`.
+        rec {
+          # Expose QuickQanava as a standalone package for inspection
+          quickqanava = quickqanavaPackage;
 
-      # Called INSIDE forAllSystems, not once: QuickQanava is a per-system
-      # package, and mkLogosQmlModule takes plain values (no cmakeFlags hook),
-      # so the only way to hand it a system-specific path is to build one
-      # module per system and index it. Same shape as muster/module.
-      moduleFor = system:
-        let qq = quickqanavaFor system;
-        in logos-module-builder.lib.mkLogosQmlModule {
-          src = ./.;
-          configFile = ./metadata.json;
-          flakeInputs = {
-            workflow_registry  = inputs.logos-workflow-registry;
-            workflow_engine    = inputs.logos-workflow-engine;
-            workflow_scheduler = inputs.logos-workflow-scheduler;
-          } // inputs;
+          default = pkgs.stdenv.mkDerivation {
+            pname = "logos-workflow-canvas";
+            version = "1.0.0";
+            src = ./.;
 
-          extraBuildInputs = [ qq ];
+            nativeBuildInputs = [
+              pkgs.cmake pkgs.ninja pkgs.pkg-config
+              pkgs.qt6.wrapQtAppsHook
+              pkgs.patchelf
+            ];
+            buildInputs = [
+              pkgs.qt6.qtbase pkgs.qt6.qtdeclarative
+              pkgs.zstd pkgs.krb5
+              # liblogos's logos_api_client.h includes <nlohmann/json.hpp>
+              # since the SDK split; it is a header-only dependency of the
+              # headers this plugin compiles against, not of its own code.
+              pkgs.nlohmann_json
+              quickqanavaPackage
+            ];
+            cmakeFlags = [
+              "-GNinja"
+              "-DCMAKE_BUILD_TYPE=Release"
+              "-DLOGOS_CPP_SDK_ROOT=${logosSdk}"
+              "-DLOGOS_LIBLOGOS_ROOT=${logosLiblogos}"
+              "-DQUICKQANAVA_ROOT=${quickqanavaPackage}"
+            ];
 
-          # CMakeLists.txt reads QUICKQANAVA_ROOT for the view-side QML plugin.
-          preConfigure = ''
-            export QUICKQANAVA_ROOT=${qq}
-          '';
+            installPhase = ''
+              runHook preInstall
+              mkdir -p $out/lib
 
-          # Stage QuickQanava beside the plugin. The view engine resolves QML
-          # imports from the module's install directory (basecamp's QmlSandbox
-          # prepends it), so QuickQanava's QML module has to travel INSIDE the
-          # module rather than sit in a Qt prefix the host knows nothing about.
-          #
-          # Both QML plugins — QuickQanava's and this module's — must resolve
-          # the SAME libQuickQanava, which is why the RPATHs are rewritten to
-          # the staged copy rather than left pointing at the nix store.
-          # The plugin build has its own installPhase and never runs `ninja
-          # install`, so CMake install() rules are ignored — the view-side QML
-          # module has to be staged from the build tree by hand.
-          postInstall = ''
-            # Our QML module: `import WorkflowCanvas 1.0` in the view.
-            mkdir -p $out/lib/WorkflowCanvas
-            cp -r qml-modules/WorkflowCanvas/. $out/lib/WorkflowCanvas/
-            cp -P libworkflowcanvasqml.so* $out/lib/ 2>/dev/null || true
-            cp -P libworkflowcanvasqml.dylib $out/lib/ 2>/dev/null || true
-            chmod -R u+w $out/lib/WorkflowCanvas
+              # Canvas plugin
+              cp workflow_canvas.so $out/lib/ 2>/dev/null || cp workflow_canvas.dylib $out/lib/ 2>/dev/null || true
 
-            # QuickQanava's QML module: `import QuickQanava as Qan`. It has to
-            # travel inside the module because the view engine resolves imports
-            # from the module's install directory (basecamp's QmlSandbox
-            # prepends it) and knows nothing about a Qt prefix.
-            mkdir -p $out/lib/QuickQanava
-            cp -r ${qq}/qml/QuickQanava/. $out/lib/QuickQanava/
-            chmod -R u+w $out/lib/QuickQanava
+              # Bundle the QuickQanava shared library alongside the plugin
+              cp -P ${quickqanavaPackage}/lib/libQuickQanava.so* $out/lib/ 2>/dev/null || true
+              cp -P ${quickqanavaPackage}/lib/libQuickQanava.dylib $out/lib/ 2>/dev/null || true
 
-            # Both QML plugins sit one level below the libraries they need.
-            for so in $out/lib/QuickQanava/*.so $out/lib/WorkflowCanvas/*.so; do
-              [ -f "$so" ] || continue
-              patchelf --set-rpath "\$ORIGIN/..:${qq}/lib" "$so" || true
-            done
-          '';
-        };
-    in {
-      packages = forAllSystems (system: (moduleFor system).packages.${system});
-      apps     = forAllSystems (system: (moduleFor system).apps.${system} or {});
-      devShells = forAllSystems (system: (moduleFor system).devShells.${system} or {});
+              # Bundle the QuickQanava QML module so the app can set QML2_IMPORT_PATH
+              mkdir -p $out/lib/qt-6/qml
+              cp -r ${quickqanavaPackage}/lib/qt-6/qml/QuickQanava $out/lib/qt-6/qml/
+              chmod -R u+w $out/lib/qt-6/qml/QuickQanava
+
+              # Fix RPATH: the QML plugin must load the SAME libQuickQanava.so as
+              # workflow_canvas.so (both from $out/lib), not a separate nix store copy.
+              if [ -f $out/lib/qt-6/qml/QuickQanava/libQuickQanavaplugin.so ]; then
+                patchelf --set-rpath "$out/lib" $out/lib/qt-6/qml/QuickQanava/libQuickQanavaplugin.so
+              fi
+
+              runHook postInstall
+            '';
+
+            meta = {
+              description = "Logos Workflow Canvas - Visual workflow editor";
+              platforms = pkgs.lib.platforms.unix;
+            };
+          };
+
+          # What the module release pipeline builds. `portable` runs the output
+          # through nix-bundle-dir first, so the .lgx carries its own closure
+          # instead of depending on /nix/store paths on the installing machine.
+          # The bundler reads metadata.json from the derivation's `src`, which
+          # is this repo root — the same file the release action cross-checks
+          # the built artifact's name and version against.
+          lgx-portable = nix-bundle-lgx.bundlers.${system}.portable default;
+        }
+      );
     };
 }
