@@ -12,6 +12,26 @@ Rectangle {
     id: root
     color: "#0d1117"
 
+    // Live node count for the status bar.
+    //
+    // qan::Graph exposes `nodes` as a QAbstractItemModel, which has no `count`
+    // property — reading graph.nodes.count yielded undefined, and the status
+    // bar read "Nodes: undefined". getNodeCount() is the actual API, but it is
+    // a plain Q_INVOKABLE with no change signal, so a direct binding would
+    // never update. Track it off the model's own row signals instead.
+    property int nodeCount: 0
+
+    function refreshNodeCount() {
+        root.nodeCount = graph ? graph.getNodeCount() : 0
+    }
+
+    Connections {
+        target: graph ? graph.nodes : null
+        function onRowsInserted() { root.refreshNodeCount() }
+        function onRowsRemoved() { root.refreshNodeCount() }
+        function onModelReset() { root.refreshNodeCount() }
+    }
+
     // The canvasWidget C++ object is injected via setContextProperty
     // canvasWidget.nodeTypeDefinitions — array of node type defs
     // canvasWidget.executeWorkflow(json) — run the workflow
@@ -388,7 +408,7 @@ Rectangle {
                 spacing: 12
 
                 Text {
-                    text: "Nodes: " + (graph && graph.nodes ? graph.nodes.count : 0)
+                    text: "Nodes: " + root.nodeCount
                     color: "#6e7681"; font.pixelSize: 11
                 }
                 Text {
