@@ -48,11 +48,19 @@ void CanvasWidget::setupUI()
     // Try both portable and non-portable (Nix dev) plugin paths, plus the
     // app's own lib directory.
     QString appDataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    QStringList qmlSearchPaths = {
-        appDataDir + "Nix/plugins/workflow_canvas/qt-6/qml",   // Non-portable (Nix dev)
-        appDataDir + "/plugins/workflow_canvas/qt-6/qml",       // Portable
-        QCoreApplication::applicationDirPath() + "/../lib/qt-6/qml", // App output
-    };
+    QStringList qmlSearchPaths;
+    // LOGOS_USER_DIR wins when the host was launched with --user-dir: the
+    // plugin is then staged under that tree, while AppDataLocation still
+    // points at the default one. Without this, a host running against an
+    // isolated data directory finds no QuickQanava and the canvas comes up
+    // empty.
+    const QString userDir = qEnvironmentVariable("LOGOS_USER_DIR");
+    if (!userDir.isEmpty())
+        qmlSearchPaths << userDir + "/plugins/workflow_canvas/qt-6/qml";
+    qmlSearchPaths
+        << appDataDir + "Nix/plugins/workflow_canvas/qt-6/qml"    // Non-portable (Nix dev)
+        << appDataDir + "/plugins/workflow_canvas/qt-6/qml"       // Portable
+        << QCoreApplication::applicationDirPath() + "/../lib/qt-6/qml";  // App output
     for (const QString& path : qmlSearchPaths) {
         if (QDir(path + "/QuickQanava").exists()) {
             m_quickWidget->engine()->addImportPath(path);

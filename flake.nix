@@ -19,9 +19,15 @@
     # the output the module release pipeline builds — can sit on top of the
     # existing build untouched.
     nix-bundle-lgx.url = "github:logos-co/nix-bundle-lgx";
+
+    # Turns the built derivation into the plugins/<name>/ tree a host
+    # pre-installs (manifest.json + variant dir). Same bundler the module
+    # builder uses for its `install` output; this module keeps its own
+    # derivation, so it wires the bundler up itself.
+    nix-bundle-logos-module-install.url = "github:logos-co/nix-bundle-logos-module-install";
   };
 
-  outputs = { self, nixpkgs, logos-cpp-sdk, logos-liblogos, quickqanava, nix-bundle-lgx }:
+  outputs = { self, nixpkgs, logos-cpp-sdk, logos-liblogos, quickqanava, nix-bundle-lgx, nix-bundle-logos-module-install }:
     let
       systems = [ "aarch64-darwin" "x86_64-darwin" "aarch64-linux" "x86_64-linux" ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f {
@@ -191,6 +197,13 @@
           # is this repo root — the same file the release action cross-checks
           # the built artifact's name and version against.
           lgx-portable = nix-bundle-lgx.bundlers.${system}.portable default;
+
+          # What a host stages into its plugins/ directory. `install` is the
+          # dev (nix-store-referencing) layout; `install-portable` carries its
+          # own closure for a machine without this store.
+          install = nix-bundle-logos-module-install.bundlers.${system}.dev default;
+          install-portable =
+            nix-bundle-logos-module-install.bundlers.${system}.portable default;
         }
       );
     };
