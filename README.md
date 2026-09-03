@@ -8,7 +8,11 @@ This is **Module 3** of the [Logos Legos](https://github.com/corpetty/logos-lego
 
 ## What It Does
 
-The canvas is loaded by `logos-app` as a UI plugin (implementing `IComponent`). It queries the registry for the current node palette, renders a graph editor where users can place and connect nodes, and calls the engine to execute workflows interactively. The graph state is serialized to JSON for save/load and for handing off to the scheduler for deployment.
+The canvas is loaded by a Logos host (e.g. [basecamp](https://github.com/logos-co/logos-basecamp)) as a UI plugin (implementing `IComponent`). It queries the registry for the current node palette, renders a graph editor where users can place and connect nodes, and calls the engine to execute workflows interactively. The graph state is serialized to JSON for save/load and for handing off to the scheduler for deployment.
+
+### Why this one stayed a legacy widget
+
+The other three modules in this stack (`workflow_registry`, `workflow_engine`, `workflow_scheduler`) moved to `interface: "universal"`, the current authoring model. The canvas has not, and the reason is a platform constraint rather than an oversight: a `ui_qml` module's view runs QML/JS only, under a sandbox that refuses to load native code from the module's own install directory. There is no production-grade pure-QML equivalent of [QuickQanava](https://github.com/cneben/QuickQanava), the graph rendering library this module is built on, so a `ui_qml` port would mean rewriting the graph view from scratch on `QtQuick.Shapes`. Until that rewrite is worth doing, the canvas stays a legacy `type: "ui"` in-process widget, which carries no such restriction. The three modules it talks to are unaffected by this — it calls them the same way regardless of its own interface.
 
 ---
 
@@ -46,7 +50,7 @@ The canvas has no runtime dependency -- once a workflow is serialized to JSON it
 |---|---|---|
 | `executeWorkflow` | `void executeWorkflow(const QString& workflowJson)` | Send workflow JSON to the engine, update result panel |
 | `refreshNodeTypes` | `void refreshNodeTypes()` | Re-query the registry for node type definitions |
-| `saveWorkflow` | `void saveWorkflow(const QString& name, const QString& workflowJson)` | Save to `~/.local/share/Logos/LogosApp/workflows/<name>.json` |
+| `saveWorkflow` | `void saveWorkflow(const QString& name, const QString& workflowJson)` | Save to `<AppDataLocation>/workflows/<name>.json` — the exact path depends on the host application's organization/app name (`QStandardPaths::AppDataLocation`); the name is sanitised to a plain filename first |
 | `loadWorkflow` | `QString loadWorkflow(const QString& name)` | Load a saved workflow JSON by name |
 | `listSavedWorkflows` | `QStringList listSavedWorkflows()` | List saved workflow names |
 | `deleteWorkflow` | `void deleteWorkflow(const QString& name)` | Delete a saved workflow |
@@ -114,15 +118,15 @@ QuickQanava is built as a **shared Nix derivation** (not vendored statically). T
 4. Installs: `lib/libQuickQanava.so`, `lib/qt-6/qml/QuickQanava/` (QML module with qmldir), `include/QuickQanava/` (headers)
 5. Fixes RPATH so the QML plugin loads the correct `libQuickQanava.so`
 
-The canvas derivation links against this shared library and bundles both the `.so` and QML module in its output. At runtime, `CanvasWidget::setupUI()` adds the QML module path to the engine's import paths so `import QuickQanava` resolves.
+The canvas derivation links against this shared library and bundles both the `.so` and QML module in its output, with its own `INSTALL_RPATH` set to `$ORIGIN` so the co-located `libQuickQanava.so` resolves regardless of where the host stages the plugin — the install bundler strips `RUNPATH` from what it stages, so without this the plugin fails to `dlopen` and the widget is silently never created.
 
-For local CMake builds, the vendored submodule at `vendor/QuickQanava/` is still supported as a fallback via `add_subdirectory()`.
+At runtime, `CanvasWidget::setupUI()` locates the QML module directory via `dladdr` on the plugin's own code — the directory this very `.so` was loaded from — rather than guessing at install layouts (`AppDataLocation`, `LOGOS_USER_DIR`, etc., which are kept as fallbacks). This is what makes the QuickQanava import work correctly whether the host stages the plugin in an app bundle, a user data directory, or a portable install. A missing QuickQanava now logs a warning naming every path that was tried, rather than leaving the canvas silently blank.
 
 ---
 
 ## IComponent Integration
 
-The canvas is loaded by `logos-app` via `QPluginLoader`. The entry point is `CanvasComponent`:
+The canvas is loaded by the host application via `QPluginLoader`. The entry point is `CanvasComponent`:
 
 ```cpp
 class CanvasComponent : public QObject, public IComponent {
@@ -147,7 +151,7 @@ When `createWidget` is called, it:
 
 | File | Purpose |
 |---|---|
-| `CanvasComponent.h/.cpp` | `IComponent` factory -- entry point loaded by `logos-app` |
+| `CanvasComponent.h/.cpp` | `IComponent` factory -- entry point loaded by the host application |
 | `CanvasWidget.h/.cpp` | Top-level widget: QML engine setup, QuickQanava init, type registration, module communication |
 | `WorkflowGraph.h/.cpp` | Extends `qan::Graph` -- typed node insertion via `insertNode<T>()`, port management, serialization |
 | `nodes/ModuleMethodNode` | Node for Logos module method calls, with custom delegate and style |
@@ -210,7 +214,7 @@ Node IDs are generated from memory addresses (unique per session). Port IDs matc
 
 ## Saved Workflows
 
-Workflows are saved to: `~/.local/share/Logos/LogosApp/workflows/<name>.json`
+Workflows are saved under the host application's `QStandardPaths::AppDataLocation`, in a `workflows/` subdirectory -- the exact path depends on which host loaded the plugin (its organization and application name). A workflow name is sanitised to letters, digits, spaces, `-` and `_` before it becomes a filename.
 
 ---
 
@@ -226,10 +230,9 @@ Output: `result/lib/workflow_canvas.so`, `result/lib/libQuickQanava.so`, `result
 
 ### With CMake (local development)
 
-Requires Qt6 with Quick, QuickWidgets, and QuickControls2. Initialize the QuickQanava submodule first.
+Requires Qt6 with Quick, QuickWidgets, and QuickControls2, plus `nlohmann_json` (a header-only dependency of `liblogos`'s `logos_api_client.h` since the SDK split). Set `LOGOS_CPP_SDK_ROOT` and `LOGOS_LIBLOGOS_ROOT` to point at your SDK/liblogos installations, and `QUICKQANAVA_ROOT` at a pre-built QuickQanava (shared library + headers) -- there is no vendored fallback; the Nix build's `quickqanavaPackage` is the reference for building one by hand.
 
 ```bash
-git submodule update --init --recursive
 mkdir build && cd build
 cmake .. -GNinja
 ninja
