@@ -119,25 +119,46 @@ endforeach()
 # how this presented: the canvas's declared module dependencies loaded, then
 # nothing, and no CanvasWidget object existed in the running app.
 #
-# Linking the SHARED libraries, not static copies, is also what keeps the token
-# ring intact: LogosAPI caches &TokenManager::instance(), so an image carrying
-# its own copy of that code would cache a DIFFERENT singleton than the host
-# wrote the token into (see the note in logos_api.h). The host has already
-# loaded both sonames by the time it dlopens this plugin, so the plugin binds
-# to the host's copies.
-foreach(_lib logos_qt_host logos_protocol)
-    find_library(LOGOS_LIB_${_lib} NAMES ${_lib}
-                 PATHS "${LOGOS_LIBLOGOS_ROOT}/lib" NO_DEFAULT_PATH)
-    if(LOGOS_LIB_${_lib})
-        target_link_libraries(workflow_canvas PRIVATE "${LOGOS_LIB_${_lib}}")
-        message(STATUS "Linking host runtime: ${LOGOS_LIB_${_lib}}")
-    else()
-        message(FATAL_ERROR
-            "lib${_lib} not found under ${LOGOS_LIBLOGOS_ROOT}/lib — the host "
-            "exports no symbols, so leaving LogosAPI undefined would fail at "
-            "dlopen with the widget never created.")
-    endif()
-endforeach()
+# NOT linked by find_library() + target_link_libraries(<absolute path>): that
+# resolves to a full /nix/store path, which CMake records as a real input to
+# THIS derivation. The host already has both sonames loaded by the time it
+# dlopens this plugin (nm -D on the host lists them as NEEDED), so this plugin
+# must reference the sonames WITHOUT dragging logos-liblogos into its own
+# closure — a portable .lgx bundles its full closure, and a second, unrelated
+# copy of these sonames already living elsewhere in that closure collided with
+# this one and broke the bundler outright (a symlink cycle in its dedup logic,
+# "Too many levels of symbolic links" on liblogos_qt_host.so).
+#
+# `-l:<soname>` + a link-only `-L` search directory (target_link_directories,
+# which contributes no RPATH and leaves no store path embedded in the output)
+# gets the DT_NEEDED entries onto workflow_canvas.so with nothing for Nix's
+# reference scanner to find. Linking the shared sonames rather than a static
+# copy is also what keeps the token ring intact: LogosAPI caches
+# &TokenManager::instance(), so an image carrying its own copy of that code
+# would cache a DIFFERENT singleton than the host wrote the token into (see
+# the note in logos_api.h) — this plugin must bind to the host's copies, not
+# ship its own.
+#
+# Linux (ELF) only. `-l:filename` is GNU-ld/gold/lld colon syntax; Apple's
+# linker doesn't have it, and doesn't need it — the `-undefined dynamic_lookup`
+# below already defers every undefined symbol to the host at load time on
+# Darwin, which is the same "don't link the real library, let the host resolve
+# it" intent this block exists for on Linux. Linking it explicitly there too
+# would be redundant at best and wrong syntax at worst.
+if(NOT APPLE)
+    target_link_directories(workflow_canvas PRIVATE "${LOGOS_LIBLOGOS_ROOT}/lib")
+    foreach(_lib logos_qt_host logos_protocol)
+        if(EXISTS "${LOGOS_LIBLOGOS_ROOT}/lib/lib${_lib}.so")
+            target_link_libraries(workflow_canvas PRIVATE "-l:lib${_lib}.so")
+            message(STATUS "Linking host runtime soname: lib${_lib}.so")
+        else()
+            message(FATAL_ERROR
+                "lib${_lib}.so not found under ${LOGOS_LIBLOGOS_ROOT}/lib — the "
+                "host exports no symbols, so leaving LogosAPI undefined would "
+                "fail at dlopen with the widget never created.")
+        endif()
+    endforeach()
+endif()
 
 target_link_libraries(workflow_canvas PRIVATE
     Qt6::Core
